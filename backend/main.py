@@ -52,11 +52,11 @@ async def generate_video(request: Request):
         voiceover_path = None
         print(f"TTS failed: {e}")
     output_path = await assemble_video(clip_path, voiceover_path)
-    return {"video_url": output_path}
+    return FileResponse(output_path, media_type="video/mp4", filename="video.mp4")
 
 @app.get("/")
 async def root():
-    return {"status": "ai-video-generator backend running"}
+    return {"status": "ai-video-generator running on Render"}
 
 if __name__ == "__main__":
     import uvicorn
