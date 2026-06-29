@@ -5,7 +5,10 @@ from fastapi.responses import FileResponse
 import httpx
 from tts import generate_voiceover
 from scene_analyzer import split_script_into_scenes, get_scene_search_query
-from smart_stitcher import generate_scene_voiceovers, cut_clip_to_duration, stitch_scenes
+from smart_stitcher import (
+    generate_scene_voiceovers, cut_clip_to_duration, 
+    stitch_scenes, concatenate_audio
+)
 
 app = FastAPI()
 
@@ -57,30 +60,35 @@ async def generate_video(request: Request):
             cut_clip_to_duration(raw_clip, cut_clip, sv["duration"])
             scene_clips.append(cut_clip)
         except Exception as e:
-            print(f"Clip download failed for scene {i}: {e}")
-            # Use fallback
+            print(f"Clip failed for scene {i}: {e}")
             await download_pexels_clip(fallback_query, raw_clip)
             cut_clip_to_duration(raw_clip, cut_clip, sv["duration"])
             scene_clips.append(cut_clip)
     
-    # Step 4: Stitch all scenes together
-    stitched_path = os.path.join(TMP_DIR, "stitched.mp4")
-    stitch_scenes(scene_clips, stitched_path)
+    # Step 4: Stitch all video scenes together
+    stitched_video = os.path.join(TMP_DIR, "stitched.mp4")
+    stitch_scenes(scene_clips, stitched_video)
     
-    # Step 5: Mix audio (scene voiceovers concatenated)
-    # For simplicity, return stitched video with first voiceover
-    # Full audio mixing requires more complex FFmpeg
-    final_output = os.path.join(TMP_DIR, "output.mp4")
-    if scene_voices and scene_voices[0]["audio_path"]:
-        import subprocess
-        subprocess.run([
-            "ffmpeg", "-y", "-i", stitched_path,
-            "-i", scene_voices[0]["audio_path"],
-            "-c:v", "copy", "-c:a", "aac", "-shortest",
-            final_output
-        ], check=True, capture_output=True)
+    # Step 5: Concatenate all audio voiceovers
+    audio_paths = [sv["audio_path"] for sv in scene_voices if sv["audio_path"] and os.path.exists(sv["audio_path"])]
+    full_audio = os.path.join(TMP_DIR, "full_audio.mp3")
+    if audio_paths:
+        concatenate_audio(audio_paths, full_audio)
     else:
-        final_output = stitched_path
+        # No audio - just return stitched video
+        return FileResponse(stitched_video, media_type="video/mp4", filename="video.mp4")
+    
+    # Step 6: Mix full audio with stitched video
+    final_output = os.path.join(TMP_DIR, "output.mp4")
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-i", stitched_video,
+        "-i", full_audio,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-shortest",
+        final_output
+    ], check=True, capture_output=True)
     
     return FileResponse(final_output, media_type="video/mp4", filename="video.mp4")
 

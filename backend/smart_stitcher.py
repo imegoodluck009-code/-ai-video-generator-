@@ -3,9 +3,6 @@ import subprocess
 from scene_analyzer import split_script_into_scenes, get_scene_search_query
 
 async def generate_scene_voiceovers(script: str, tts_func, tmp_dir: str) -> list:
-    """
-    Generate voiceover for each scene and return list of {scene, audio_path, duration}
-    """
     scenes = split_script_into_scenes(script)
     results = []
     
@@ -13,7 +10,6 @@ async def generate_scene_voiceovers(script: str, tts_func, tmp_dir: str) -> list
         audio_path = os.path.join(tmp_dir, f"voice_{i}.mp3")
         try:
             await tts_func(scene["text"], audio_path)
-            # Get actual duration from file
             duration = get_audio_duration(audio_path)
             results.append({
                 "scene": scene,
@@ -25,13 +21,12 @@ async def generate_scene_voiceovers(script: str, tts_func, tmp_dir: str) -> list
             results.append({
                 "scene": scene,
                 "audio_path": None,
-                "duration": scene["duration"]  # use estimate
+                "duration": scene["duration"]
             })
     
     return results
 
 def get_audio_duration(audio_path: str) -> float:
-    """Get audio duration in seconds using ffprobe."""
     try:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", 
@@ -40,10 +35,9 @@ def get_audio_duration(audio_path: str) -> float:
         )
         return float(result.stdout.strip())
     except:
-        return 2.0  # fallback
+        return 2.0
 
 def cut_clip_to_duration(input_path: str, output_path: str, duration: float):
-    """Cut a video clip to exact duration."""
     subprocess.run([
         "ffmpeg", "-y", "-i", input_path,
         "-t", str(duration), "-c", "copy",
@@ -51,11 +45,28 @@ def cut_clip_to_duration(input_path: str, output_path: str, duration: float):
     ], check=True, capture_output=True)
 
 def stitch_scenes(scene_clips: list, output_path: str):
-    """Stitch multiple clips together with FFmpeg concat."""
     list_file = os.path.join(os.path.dirname(output_path), "concat_list.txt")
     with open(list_file, "w") as f:
         for clip in scene_clips:
             f.write(f"file '{clip}'\n")
+    
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", list_file, "-c", "copy", output_path
+    ], check=True, capture_output=True)
+
+def concatenate_audio(audio_paths: list, output_path: str):
+    """Concatenate multiple audio files into one."""
+    if len(audio_paths) == 1:
+        # Just copy
+        subprocess.run(["cp", audio_paths[0], output_path], check=True)
+        return
+    
+    list_file = os.path.join(os.path.dirname(output_path), "audio_list.txt")
+    with open(list_file, "w") as f:
+        for path in audio_paths:
+            if path and os.path.exists(path):
+                f.write(f"file '{path}'\n")
     
     subprocess.run([
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
